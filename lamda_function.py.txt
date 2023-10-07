@@ -1,0 +1,61 @@
+import boto3
+import json
+import os
+import logging
+from PyPDF3 import PdfFileReader
+from io import BytesIO
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    logger.info('********************** Environment and Event variables are *********************')
+    logger.info(os.environ)
+    logger.info(event)
+    extract_content(event)
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Execution is now complete')
+    }
+
+def extract_content(event):
+    try:
+        # Read the target bucket from the lambda environment variable
+        targetBucket = os.environ['TARGET_BUCKET']
+    except KeyError:
+        targetBucket = "gl-dest"
+    print('Target bucket is', targetBucket)
+
+    bucket = event['Records'][0]['s3']['bucket']['name']
+    key = event['Records'][0]['s3']['object']['key']
+    print('The S3 bucket is', bucket, 'and the file name is', key)
+    
+    s3client = boto3.client('s3')
+    response = s3client.get_object(Bucket=bucket, Key=key)
+    pdffile_content = response["Body"].read()  # Read the content of the PDF file as bytes
+
+    # Create a BytesIO object from the content
+    pdffile = BytesIO(pdffile_content)
+    print('The binary PDF file type is', type(pdffile))
+
+    # Read the PDF file using PyPDF3
+    reader = PdfFileReader(pdffile)
+    
+    # Extract metadata
+    metadata = reader.getDocumentInfo()
+    print("Metadata is", metadata)
+    
+    # Extract text content from all pages
+    text = ""
+    for page_num in range(reader.getNumPages()):
+        page = reader.getPage(page_num)
+        page_text = page.extractText()
+        text += page_text  # Use extractText() method to extract text
+        print("Extracted text from page", page_num, "is:", page_text)
+    
+    print("Extracted text is ", text)
+    
+    # Save text content to a text file in S3
+    s3client.put_object(Bucket=targetBucket, Key=key + ".txt", Body=text, ContentType="text/plain")
+    
+    print('All done, returning from extract_content method')
